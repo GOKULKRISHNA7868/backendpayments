@@ -9,7 +9,6 @@ router.post("/initiate", (req, res) => {
   const access_code = process.env.CCAV_ACCESS_CODE;
   const working_key = process.env.CCAV_WORKING_KEY;
 
-  // Use FRONTEND_URL here
   const redirect_url = `${process.env.FRONTEND_URL}/payment-success`;
   const cancel_url = `${process.env.FRONTEND_URL}/payment-failed`;
 
@@ -17,8 +16,13 @@ router.post("/initiate", (req, res) => {
 
   const encRequest = encrypt(data, working_key);
 
+  const paymentUrl =
+    process.env.CCAV_ENV === "PROD"
+      ? "https://secure.ccavenue.com/transaction/transaction.do?command=initiateTransaction"
+      : "https://test.ccavenue.com/transaction/transaction.do?command=initiateTransaction";
+
   res.json({
-    url: "https://secure.ccavenue.com/transaction/transaction.do?command=initiateTransaction",
+    url: paymentUrl,
     encRequest,
     access_code,
   });
