@@ -11,7 +11,7 @@ router.post("/initiate", (req, res) => {
   const working_key = process.env.CCAV_WORKING_KEY;
 
   // Use the CCAvenue registered domain
-  const redirect_url = `https://kirdana.net/payment-success`;
+  const redirect_url = `https://kirdana.net/payment`;
   const cancel_url = `https://kirdana.net/payment-failed`;
 
   const data = `merchant_id=${merchant_id}&order_id=${order_id}&amount=${amount}&currency=INR&redirect_url=${redirect_url}&cancel_url=${cancel_url}&billing_name=${customer.name}&billing_email=${customer.email}&billing_tel=${customer.phone}`;
