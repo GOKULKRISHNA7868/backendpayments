@@ -9,8 +9,9 @@ router.post("/initiate", (req, res) => {
   const access_code = process.env.CCAV_ACCESS_CODE;
   const working_key = process.env.CCAV_WORKING_KEY;
 
-  const redirect_url = `${process.env.BASE_URL}/api/ccav/response`;
-  const cancel_url = `${process.env.BASE_URL}/api/ccav/cancel`;
+  // Use FRONTEND_URL here
+  const redirect_url = `${process.env.FRONTEND_URL}/payment-success`;
+  const cancel_url = `${process.env.FRONTEND_URL}/payment-failed`;
 
   const data = `merchant_id=${merchant_id}&order_id=${order_id}&amount=${amount}&currency=INR&redirect_url=${redirect_url}&cancel_url=${cancel_url}&billing_name=${customer.name}&billing_email=${customer.email}&billing_tel=${customer.phone}`;
 
