@@ -2,6 +2,7 @@ const express = require("express");
 const router = express.Router();
 const { encrypt, decrypt } = require("../utils/crypto");
 
+// Initiate payment
 router.post("/initiate", (req, res) => {
   const { amount, order_id, customer } = req.body;
 
@@ -9,8 +10,9 @@ router.post("/initiate", (req, res) => {
   const access_code = process.env.CCAV_ACCESS_CODE;
   const working_key = process.env.CCAV_WORKING_KEY;
 
-  const redirect_url = `${process.env.FRONTEND_URL}/payment-success`;
-  const cancel_url = `${process.env.FRONTEND_URL}/payment-failed`;
+  // Use the CCAvenue registered domain
+  const redirect_url = `https://kirdana.net/payment-success`;
+  const cancel_url = `https://kirdana.net/payment-failed`;
 
   const data = `merchant_id=${merchant_id}&order_id=${order_id}&amount=${amount}&currency=INR&redirect_url=${redirect_url}&cancel_url=${cancel_url}&billing_name=${customer.name}&billing_email=${customer.email}&billing_tel=${customer.phone}`;
 
@@ -28,6 +30,7 @@ router.post("/initiate", (req, res) => {
   });
 });
 
+// Handle CCAvenue response
 router.post(
   "/response",
   express.urlencoded({ extended: false }),
@@ -35,16 +38,23 @@ router.post(
     const encResp = req.body.encResp;
     const working_key = process.env.CCAV_WORKING_KEY;
 
-    const decrypted = decrypt(encResp, working_key);
-
-    res.redirect(
-      `${process.env.FRONTEND_URL}/payment-success?data=${encodeURIComponent(decrypted)}`,
-    );
+    try {
+      const decrypted = decrypt(encResp, working_key);
+      // Redirect to frontend success page with decoded data
+      res.redirect(
+        `https://kirdana.net/payment-success?data=${encodeURIComponent(decrypted)}`,
+      );
+    } catch (err) {
+      console.error("CCAvenue Response Decrypt Error:", err);
+      // Redirect to failure page on error
+      res.redirect("https://kirdana.net/payment-failed");
+    }
   },
 );
 
+// Handle payment cancel
 router.post("/cancel", (req, res) => {
-  res.redirect(`${process.env.FRONTEND_URL}/payment-failed`);
+  res.redirect("https://kirdana.net/payment-failed");
 });
 
 module.exports = router;
