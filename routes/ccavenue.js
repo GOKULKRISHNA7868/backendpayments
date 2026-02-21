@@ -6,10 +6,10 @@ const { encrypt, decrypt } = require("../utils/crypto");
    🔐 CCAvenue TEST Credentials
    =============================== */
 
-const merchant_id = "4423673"; // e.g. 123456
-const access_code = "AVRZ88NB50BI97ZRIB"; // e.g. AVABCD12EFGH34
-const working_key = "Y12E1987827A3A9099F4791A84AB6CDF2"; // 32 char key from CCAvenue
-const CCAV_ENV = "TEST"; // change to "PROD" later
+const merchant_id = "4423673";
+const access_code = "AVRZ88NB50BI97ZRIB";
+const working_key = "Y12E1987827A3A9099F4791A84AB6CDF2";
+const CCAV_ENV = "PROD"; // change to "PROD" later
 
 /* ===============================
    Initiate payment
@@ -29,7 +29,6 @@ router.post("/initiate", (req, res) => {
     CCAV_ENV === "PROD"
       ? "https://secure.ccavenue.com/transaction/transaction.do?command=initiateTransaction"
       : "https://test.ccavenue.com/transaction/transaction.do?command=initiateTransaction";
-
   res.json({
     url: paymentUrl,
     encRequest,
