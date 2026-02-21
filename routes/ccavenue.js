@@ -2,15 +2,22 @@ const express = require("express");
 const router = express.Router();
 const { encrypt, decrypt } = require("../utils/crypto");
 
-// Initiate payment
+/* ===============================
+   🔐 CCAvenue TEST Credentials
+   =============================== */
+
+const merchant_id = "4423673"; // e.g. 123456
+const access_code = "AVRZ88NB50BI97ZRIB"; // e.g. AVABCD12EFGH34
+const working_key = "Y12E1987827A3A9099F4791A84AB6CDF2"; // 32 char key from CCAvenue
+const CCAV_ENV = "TEST"; // change to "PROD" later
+
+/* ===============================
+   Initiate payment
+   =============================== */
 router.post("/initiate", (req, res) => {
   const { amount, order_id, customer } = req.body;
 
-  const merchant_id = process.env.CCAV_MERCHANT_ID;
-  const access_code = process.env.CCAV_ACCESS_CODE;
-  const working_key = process.env.CCAV_WORKING_KEY;
-
-  // Use the CCAvenue registered domain
+  // ✅ Must be CCAvenue registered domain
   const redirect_url = `https://kirdana.net/payment`;
   const cancel_url = `https://kirdana.net/payment-failed`;
 
@@ -19,7 +26,7 @@ router.post("/initiate", (req, res) => {
   const encRequest = encrypt(data, working_key);
 
   const paymentUrl =
-    process.env.CCAV_ENV === "PROD"
+    CCAV_ENV === "PROD"
       ? "https://secure.ccavenue.com/transaction/transaction.do?command=initiateTransaction"
       : "https://test.ccavenue.com/transaction/transaction.do?command=initiateTransaction";
 
@@ -30,29 +37,35 @@ router.post("/initiate", (req, res) => {
   });
 });
 
-// Handle CCAvenue response
+/* ===============================
+   Handle CCAvenue response
+   =============================== */
 router.post(
   "/response",
   express.urlencoded({ extended: false }),
   (req, res) => {
     const encResp = req.body.encResp;
-    const working_key = process.env.CCAV_WORKING_KEY;
 
     try {
       const decrypted = decrypt(encResp, working_key);
-      // Redirect to frontend success page with decoded data
+
+      console.log("✅ CCAvenue Decrypted Response:", decrypted);
+
+      // Redirect to frontend success page
       res.redirect(
         `https://kirdana.net/payment-success?data=${encodeURIComponent(decrypted)}`,
       );
     } catch (err) {
-      console.error("CCAvenue Response Decrypt Error:", err);
-      // Redirect to failure page on error
+      console.error("❌ CCAvenue Response Decrypt Error:", err);
+
       res.redirect("https://kirdana.net/payment-failed");
     }
   },
 );
 
-// Handle payment cancel
+/* ===============================
+   Handle payment cancel
+   =============================== */
 router.post("/cancel", (req, res) => {
   res.redirect("https://kirdana.net/payment-failed");
 });
