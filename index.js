@@ -1,15 +1,21 @@
 require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
-const bodyParser = require("body-parser");
 
 const ccavRoutes = require("./routes/ccavenue");
 
 const app = express();
 
+/* ===============================
+   Middlewares
+   =============================== */
 app.use(cors());
-app.use(bodyParser.json());
+app.use(express.json()); // JSON body
+app.use(express.urlencoded({ extended: false })); // ✅ REQUIRED for CCAvenue
 
+/* ===============================
+   Routes
+   =============================== */
 app.use("/api/ccav", ccavRoutes);
 
 app.get("/health", (req, res) => {
