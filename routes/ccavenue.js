@@ -1,11 +1,12 @@
+// /src/routes/ccavenue.js
 const express = require("express");
 const router = express.Router();
 const { encrypt, decrypt } = require("../utils/crypto");
 const qs = require("querystring");
-const admin = require("firebase-admin"); // Firebase Admin SDK
-const serviceAccount = require("../firebase-service-account.json"); // Your service account
+const admin = require("firebase-admin");
 
-// Initialize Firebase Admin if not already initialized
+// 🔐 Initialize Firebase Admin SDK
+const serviceAccount = require("../firebase-service-account.json"); // Make sure this JSON is present in backend
 if (!admin.apps.length) {
   admin.initializeApp({
     credential: admin.credential.cert(serviceAccount),
@@ -14,7 +15,7 @@ if (!admin.apps.length) {
 const db = admin.firestore();
 
 /* ===============================
-   🔐 CCAvenue PROD Credentials
+   CCAvenue PROD Credentials
    =============================== */
 const merchant_id = "4423673";
 const access_code = "AVJW88NB21AL14WJLA";
@@ -22,74 +23,77 @@ const working_key = "4CE2CC6602914AD1FA96DF7457299700";
 const CCAV_ENV = "PROD";
 
 /* ===============================
-   Initiate payment
+   Initiate Payment
    =============================== */
-router.post("/initiate", (req, res) => {
-  const { amount, order_id, customer, planType, durationDays, userId, role } =
-    req.body;
+router.post("/initiate", async (req, res) => {
+  try {
+    const { amount, order_id, customer, planType, durationDays, userId, role } =
+      req.body;
 
-  // ✅ Must be CCAvenue registered domain
-  const redirect_url = "https://kirdana.net/payment-response"; // frontend route to handle success
-  const cancel_url = "https://kirdana.net/payment-failed";
+    const redirect_url = "https://kirdana.net/plans"; // frontend route to handle success
+    const cancel_url = "https://kirdana.net/payment-failed";
 
-  // ✅ Properly encoded data object
-  const dataObj = {
-    merchant_id,
-    order_id,
-    amount,
-    currency: "INR",
-    redirect_url,
-    cancel_url,
-    billing_name: customer.name,
-    billing_email: customer.email,
-    billing_tel: customer.phone,
-  };
+    const dataObj = {
+      merchant_id,
+      order_id,
+      amount,
+      currency: "INR",
+      redirect_url,
+      cancel_url,
+      billing_name: customer.name,
+      billing_email: customer.email,
+      billing_tel: customer.phone,
+    };
 
-  // ✅ URL encoded string (MANDATORY)
-  const data = qs.stringify(dataObj);
-  const encRequest = encrypt(data, working_key);
+    const data = qs.stringify(dataObj);
+    const encRequest = encrypt(data, working_key);
 
-  const paymentUrl =
-    CCAV_ENV === "PROD"
-      ? "https://secure.ccavenue.com/transaction/transaction.do?command=initiateTransaction"
-      : "https://test.ccavenue.com/transaction/transaction.do?command=initiateTransaction";
+    const paymentUrl =
+      CCAV_ENV === "PROD"
+        ? "https://secure.ccavenue.com/transaction/transaction.do?command=initiateTransaction"
+        : "https://test.ccavenue.com/transaction/transaction.do?command=initiateTransaction";
 
-  // 🔐 Save pending payment in Firestore
-  const pendingRef = db.collection("pendingPayments").doc(order_id);
-  pendingRef.set({
-    orderId: order_id,
-    userId,
-    role,
-    planType,
-    amount: Number(amount),
-    durationDays,
-    status: "PENDING",
-    createdAt: admin.firestore.FieldValue.serverTimestamp(),
-  });
+    // 🔐 Save pending payment in Firestore
+    await db
+      .collection("pendingPayments")
+      .doc(order_id)
+      .set({
+        orderId: order_id,
+        userId,
+        role,
+        planType,
+        amount: Number(amount),
+        durationDays,
+        status: "PENDING",
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
 
-  res.json({
-    url: paymentUrl,
-    encRequest,
-    access_code,
-  });
+    res.json({
+      url: paymentUrl,
+      encRequest,
+      access_code,
+    });
+  } catch (err) {
+    console.error("❌ Initiate Payment Error:", err);
+    res.status(500).json({ error: "Payment initiation failed" });
+  }
 });
 
 /* ===============================
-   Handle CCAvenue response
+   Handle CCAvenue Response
    =============================== */
 router.post("/response", async (req, res) => {
-  const encResp = req.body.encResp;
-
   try {
+    const encResp = req.body.encResp;
     const decrypted = decrypt(encResp, working_key);
+
     console.log("✅ CCAvenue Decrypted Response:", decrypted);
 
-    // Parse response (example: order_id, amount, status)
     const params = qs.parse(decrypted);
     const { order_id, order_status, amount } = params;
 
     if (order_status === "Success") {
-      // 🔐 Update Firestore: mark pending payment as Success
+      // 🔐 Mark pending payment as Success
       const pendingRef = db.collection("pendingPayments").doc(order_id);
       const snap = await pendingRef.get();
 
@@ -100,7 +104,7 @@ router.post("/response", async (req, res) => {
           new Date(Date.now() + durationDays * 24 * 60 * 60 * 1000),
         );
 
-        // Save subscription in "plans" collection
+        // 🔐 Save subscription in "plans" collection
         await db
           .collection("plans")
           .doc(userId)
@@ -119,26 +123,26 @@ router.post("/response", async (req, res) => {
             createdAt: admin.firestore.FieldValue.serverTimestamp(),
           });
 
-        // Update pending payment
+        // 🔐 Update pending payment status
         await pendingRef.update({ status: "Success" });
       }
     }
 
-    // Redirect to frontend success page
+    // Redirect to frontend with full decrypted data
     res.redirect(
-      `https://your-frontend-domain.com/payment-success?data=${encodeURIComponent(decrypted)}`,
+      `https://kirdana.net/plans?status=${order_status}&order_id=${order_id}&amount=${amount}`,
     );
   } catch (err) {
-    console.error("❌ CCAvenue Response Decrypt Error:", err);
-    res.redirect("https://your-frontend-domain.com/payment-failed");
+    console.error("❌ CCAvenue Response Error:", err);
+    res.redirect("https://kirdana.net/payment-failed");
   }
 });
 
 /* ===============================
-   Handle payment cancel
+   Handle Payment Cancel
    =============================== */
 router.post("/cancel", (req, res) => {
-  res.redirect("https://your-frontend-domain.com/payment-failed");
+  res.redirect("https://kirdana.net/payment-failed");
 });
 
 module.exports = router;
