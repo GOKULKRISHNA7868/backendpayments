@@ -8,8 +8,8 @@ const { doc, setDoc, serverTimestamp } = require("firebase-admin/firestore");
    🔐 CCAvenue Credentials
    =============================== */
 const merchant_id = "4423673";
-const access_code = "AVRZ88NB50BI97ZRIB";
-const working_key = "Y12E1987827A3A9099F4791A84AB6CDF2";
+const access_code = "AVJW88NB21AL14WJLA";
+const working_key = "4CE2CC6602914AD1FA96DF7457299700";
 const CCAV_ENV = "PROD"; // change to "PROD" later
 
 /* ===============================
