@@ -25,7 +25,7 @@ router.post("/initiate", (req, res) => {
     if (!amount || !order_id || !customer?.email)
       return res.status(400).json({ success: false, error: "Missing required fields" });
 
-    const redirect_url = "https://kridana.net/api/payment/response";
+    const redirect_url = "https://kridana.net/api/payment/response"; // server endpoint
     const cancel_url = "https://kridana.net/api/payment/cancel";
 
     const dataObj = {
@@ -78,7 +78,7 @@ router.post("/response", (req, res) => {
     const parsed = qs.parse(decrypted);
     if (!parsed.order_id) return res.status(400).json({ success: false, error: "Invalid response" });
 
-    // Store payment in memory only
+    // Update in-memory store
     global.paymentStore[parsed.order_id] = {
       status: parsed.order_status === "Success" ? "PAID" : "FAILED",
       ...parsed,
@@ -99,7 +99,7 @@ router.post("/response", (req, res) => {
 });
 
 /* ===============================
-   Get payment details (for frontend manual submission)
+   Get payment details (for frontend PaymentSuccess.jsx)
    =============================== */
 router.get("/details/:orderId", (req, res) => {
   const { orderId } = req.params;
