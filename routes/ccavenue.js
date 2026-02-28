@@ -2,7 +2,6 @@ const express = require("express");
 const router = express.Router();
 const { encrypt, decrypt } = require("../utils/crypto");
 const qs = require("querystring");
-const { db } = require("../backend/firebase"); // Firebase Admin SDK
 
 /* ===============================
    🔐 CCAvenue PROD Credentials
@@ -14,7 +13,6 @@ const CCAV_ENV = "PROD";
 
 /* ===============================
    In-memory payment store
-   ⚠️ Still keeping it for quick verification
    =============================== */
 global.paymentStore = global.paymentStore || {};
 
@@ -24,10 +22,8 @@ global.paymentStore = global.paymentStore || {};
 router.post("/initiate", (req, res) => {
   try {
     const { amount, order_id, customer } = req.body;
-
-    if (!amount || !order_id || !customer?.email) {
+    if (!amount || !order_id || !customer?.email)
       return res.status(400).json({ success: false, error: "Missing required fields" });
-    }
 
     const redirect_url = "https://kirdana.net/api/payment/response";
     const cancel_url = "https://kirdana.net/api/payment/cancel";
@@ -52,7 +48,8 @@ router.post("/initiate", (req, res) => {
         ? "https://secure.ccavenue.com/transaction/transaction.do?command=initiateTransaction"
         : "https://test.ccavenue.com/transaction/transaction.do?command=initiateTransaction";
 
-    global.paymentStore[order_id] = { status: "PENDING", createdAt: Date.now(), amount };
+    // Store in-memory only
+    global.paymentStore[order_id] = { status: "PENDING", createdAt: Date.now(), amount, customer };
 
     return res.json({
       success: true,
@@ -70,7 +67,7 @@ router.post("/initiate", (req, res) => {
 /* ===============================
    Handle CCAvenue response
    =============================== */
-router.post("/response", async (req, res) => {
+router.post("/response", (req, res) => {
   try {
     const encResp = req.body.encResp;
     if (!encResp) return res.status(400).json({ success: false, error: "No encResp" });
@@ -79,69 +76,37 @@ router.post("/response", async (req, res) => {
     console.log("✅ CCAvenue Decrypted Response:", decrypted);
 
     const parsed = qs.parse(decrypted);
-
     if (!parsed.order_id) return res.status(400).json({ success: false, error: "Invalid response" });
 
-    // Prepare payment data to store in Firestore
-    const paymentData = {
-      order_id: parsed.order_id,
-      tracking_id: parsed.tracking_id || null,
-      amount: parsed.amount || null,
-      payment_status: parsed.order_status,
-      billing_name: parsed.billing_name || null,
-      billing_email: parsed.billing_email || null,
-      billing_tel: parsed.billing_tel || null,
-      bank_ref_no: parsed.bank_ref_no || null,
-      currency: parsed.currency || "INR",
-      createdAt: new Date(),
-      raw: parsed,
-    };
-
-    // Write to Firestore
-    await db.collection("payments").doc(parsed.order_id).set(paymentData);
-
-    // Update in-memory store
+    // Store payment in memory only
     global.paymentStore[parsed.order_id] = {
       status: parsed.order_status === "Success" ? "PAID" : "FAILED",
-      ...paymentData,
+      ...parsed,
       verifiedAt: Date.now(),
     };
 
-    // Redirect frontend to success page with order_id
+    // Redirect user to frontend success page
     const redirectUrl =
       parsed.order_status === "Success"
-        ? `https://kridana.net/payment-success?order_id=${parsed.order_id}`
-        : `https://kridana.net/payment-failed?order_id=${parsed.order_id}`;
+        ? `https://kirdana.net/payment-success?order_id=${parsed.order_id}`
+        : `https://kirdana.net/payment-failed?order_id=${parsed.order_id}`;
 
     return res.redirect(redirectUrl);
   } catch (err) {
     console.error("❌ CCAvenue Response Error:", err);
-    return res.status(500).json({ success: false, error: "Decrypt or store failed" });
+    return res.status(500).json({ success: false, error: "Decrypt failed" });
   }
 });
 
 /* ===============================
-   Verify payment
+   Get payment details (for frontend manual submission)
    =============================== */
-router.get("/verify/:orderId", (req, res) => {
-  try {
-    const { orderId } = req.params;
+router.get("/details/:orderId", (req, res) => {
+  const { orderId } = req.params;
+  if (!global.paymentStore[orderId])
+    return res.status(404).json({ success: false, error: "Payment not found" });
 
-    if (!global.paymentStore || !global.paymentStore[orderId])
-      return res.json({ success: false, status: "PENDING" });
-
-    const payment = global.paymentStore[orderId];
-
-    return res.json({
-      success: payment.status === "PAID",
-      status: payment.status,
-      paymentId: payment.paymentId,
-      amount: payment.amount,
-    });
-  } catch (err) {
-    console.error("❌ Verify error:", err);
-    return res.status(500).json({ success: false, status: "ERROR" });
-  }
+  return res.json({ success: true, payment: global.paymentStore[orderId] });
 });
 
 /* ===============================
