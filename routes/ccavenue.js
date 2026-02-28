@@ -110,8 +110,8 @@ router.post("/response", async (req, res) => {
     // Redirect frontend to success page with order_id
     const redirectUrl =
       parsed.order_status === "Success"
-        ? `https://kirdana.net/payment-success?order_id=${parsed.order_id}`
-        : `https://kirdana.net/payment-failed?order_id=${parsed.order_id}`;
+        ? `https://kridana.net/payment-success?order_id=${parsed.order_id}`
+        : `https://kridana.net/payment-failed?order_id=${parsed.order_id}`;
 
     return res.redirect(redirectUrl);
   } catch (err) {
