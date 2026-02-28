@@ -25,8 +25,8 @@ router.post("/initiate", (req, res) => {
     if (!amount || !order_id || !customer?.email)
       return res.status(400).json({ success: false, error: "Missing required fields" });
 
-    const redirect_url = "https://kirdana.net/api/payment/response";
-    const cancel_url = "https://kirdana.net/api/payment/cancel";
+    const redirect_url = "https://kridana.net/api/payment/response";
+    const cancel_url = "https://kridana.net/api/payment/cancel";
 
     const dataObj = {
       merchant_id,
@@ -88,8 +88,8 @@ router.post("/response", (req, res) => {
     // Redirect user to frontend success page
     const redirectUrl =
       parsed.order_status === "Success"
-        ? `https://kirdana.net/payment-success?order_id=${parsed.order_id}`
-        : `https://kirdana.net/payment-failed?order_id=${parsed.order_id}`;
+        ? `https://kridana.net/payment-success?order_id=${parsed.order_id}`
+        : `https://kridana.net/payment-failed?order_id=${parsed.order_id}`;
 
     return res.redirect(redirectUrl);
   } catch (err) {
