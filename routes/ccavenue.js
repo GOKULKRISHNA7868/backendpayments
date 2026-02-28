@@ -84,12 +84,17 @@ router.post("/initiate", (req, res) => {
 /* ===============================
    Handle CCAvenue response (SERVER-SIDE)
    =============================== */
+/* ===============================
+   Handle CCAvenue response (SERVER-SIDE)
+   =============================== */
 router.post("/response", (req, res) => {
   try {
     const encResp = req.body.encResp;
     if (!encResp) return res.status(400).send("No encResp");
 
-    const decrypted = decrypt(encResp, working_key);
+    // ✅ Add .trim() here to remove any extra whitespace/newlines
+    const decrypted = decrypt(encResp.trim(), working_key);
+
     const parsed = qs.parse(decrypted);
 
     if (!parsed.order_id) return res.status(400).send("Invalid response");
@@ -111,7 +116,7 @@ router.post("/response", (req, res) => {
       };
     }
 
-    // 🔹 Redirect to frontend with orderId as query param
+    // Redirect to frontend success page
     const frontendUrl = `https://kridana.net/payment-success?orderId=${parsed.order_id}`;
     return res.redirect(frontendUrl);
   } catch (err) {
