@@ -137,46 +137,23 @@ router.post("/response", (req, res) => {
 router.get("/verify/:orderId", (req, res) => {
   try {
     const { orderId } = req.params;
-
-    // No store or no order
-    if (!global.paymentStore || !global.paymentStore[orderId]) {
-      return res.json({
-        success: false,
-        status: "PENDING",
-      });
-    }
+    if (!global.paymentStore) global.paymentStore = {};
 
     const payment = global.paymentStore[orderId];
 
-    // ✅ Paid
-    if (payment.status === "PAID") {
-      return res.json({
-        success: true,
-        status: "PAID",
-        paymentId: payment.paymentId,
-        amount: payment.amount,
-      });
+    if (!payment) {
+      return res.json({ success: false, status: "PENDING" });
     }
 
-    // ❌ Failed
-    if (payment.status === "FAILED") {
-      return res.json({
-        success: false,
-        status: "FAILED",
-      });
-    }
-
-    // Fallback
     return res.json({
-      success: false,
-      status: "PENDING",
+      success: payment.status === "PAID",
+      status: payment.status,
+      paymentId: payment.paymentId || null,
+      amount: payment.amount || null,
     });
   } catch (err) {
     console.error("❌ Verify error:", err);
-    return res.status(500).json({
-      success: false,
-      status: "ERROR",
-    });
+    return res.json({ success: false, status: "ERROR" });
   }
 });
 
