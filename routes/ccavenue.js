@@ -1,114 +1,154 @@
 const express = require("express");
 const router = express.Router();
 const { encrypt, decrypt } = require("../utils/crypto");
-const { db } = require("../firebase"); // Firebase Admin SDK
-const { doc, setDoc, serverTimestamp } = require("firebase-admin/firestore");
+const qs = require("querystring");
+const { db } = require("../backend/firebase"); // Firebase Admin SDK
 
 /* ===============================
-   🔐 CCAvenue Credentials
+   🔐 CCAvenue PROD Credentials
    =============================== */
 const merchant_id = "4423673";
 const access_code = "AVJW88NB21AL14WJLA";
 const working_key = "4CE2CC6602914AD1FA96DF7457299700";
-const CCAV_ENV = "PROD"; // change to "PROD" later
+const CCAV_ENV = "PROD";
+
+/* ===============================
+   In-memory payment store
+   ⚠️ Still keeping it for quick verification
+   =============================== */
+global.paymentStore = global.paymentStore || {};
 
 /* ===============================
    Initiate payment
    =============================== */
 router.post("/initiate", (req, res) => {
-  const { amount, order_id, customer } = req.body;
+  try {
+    const { amount, order_id, customer } = req.body;
 
-  const redirect_url = `https://kirdana.net/payment-success`;
-  const cancel_url = `https://kirdana.net/payment-failed`;
+    if (!amount || !order_id || !customer?.email) {
+      return res.status(400).json({ success: false, error: "Missing required fields" });
+    }
 
-  const data = `merchant_id=${merchant_id}&order_id=${order_id}&amount=${amount}&currency=INR&redirect_url=${redirect_url}&cancel_url=${cancel_url}&billing_name=${customer.name}&billing_email=${customer.email}&billing_tel=${customer.phone}`;
+    const redirect_url = "https://kirdana.net/api/payment/response";
+    const cancel_url = "https://kirdana.net/api/payment/cancel";
 
-  const encRequest = encrypt(data, working_key);
+    const dataObj = {
+      merchant_id,
+      order_id,
+      amount,
+      currency: "INR",
+      redirect_url,
+      cancel_url,
+      billing_name: customer.name || "User",
+      billing_email: customer.email,
+      billing_tel: customer.phone || "9999999999",
+    };
 
-  const paymentUrl =
-    CCAV_ENV === "PROD"
-      ? "https://secure.ccavenue.com/transaction/transaction.do?command=initiateTransaction"
-      : "https://test.ccavenue.com/transaction/transaction.do?command=initiateTransaction";
+    const data = qs.stringify(dataObj);
+    const encRequest = encrypt(data, working_key);
 
-  res.json({
-    url: paymentUrl,
-    encRequest,
-    access_code,
-  });
+    const paymentUrl =
+      CCAV_ENV === "PROD"
+        ? "https://secure.ccavenue.com/transaction/transaction.do?command=initiateTransaction"
+        : "https://test.ccavenue.com/transaction/transaction.do?command=initiateTransaction";
+
+    global.paymentStore[order_id] = { status: "PENDING", createdAt: Date.now(), amount };
+
+    return res.json({
+      success: true,
+      url: paymentUrl,
+      encRequest,
+      access_code,
+      order_id,
+    });
+  } catch (err) {
+    console.error("❌ Initiate error:", err);
+    return res.status(500).json({ success: false, error: "Payment initiation failed" });
+  }
 });
 
 /* ===============================
    Handle CCAvenue response
    =============================== */
-router.post(
-  "/response",
-  express.urlencoded({ extended: false }),
-  async (req, res) => {
+router.post("/response", async (req, res) => {
+  try {
     const encResp = req.body.encResp;
+    if (!encResp) return res.status(400).json({ success: false, error: "No encResp" });
 
-    try {
-      const decrypted = decrypt(encResp, working_key);
-      console.log("✅ CCAvenue Decrypted Response:", decrypted);
+    const decrypted = decrypt(encResp, working_key);
+    console.log("✅ CCAvenue Decrypted Response:", decrypted);
 
-      // Parse key-value pairs
-      const parsedData = {};
-      decrypted.split("&").forEach((pair) => {
-        const [key, value] = pair.split("=");
-        parsedData[key] = value;
-      });
+    const parsed = qs.parse(decrypted);
 
-      // Generate order ID (fallback)
-      const orderId = parsedData.order_id || `order_${Date.now()}`;
+    if (!parsed.order_id) return res.status(400).json({ success: false, error: "Invalid response" });
 
-      // Save payment to Firebase
-      try {
-        await setDoc(doc(db, "payments", orderId), {
-          order_id: parsedData.order_id,
-          tracking_id: parsedData.tracking_id,
-          bank_ref_no: parsedData.bank_ref_no,
-          payment_status: parsedData.order_status || parsedData.status,
-          amount: parsedData.amount,
-          currency: parsedData.currency,
-          billing_name: parsedData.billing_name,
-          billing_email: parsedData.billing_email,
-          billing_tel: parsedData.billing_tel,
-          decrypted_raw: decrypted,
-          createdAt: serverTimestamp(),
-        });
-      } catch (firebaseErr) {
-        console.error("❌ Failed to save payment in Firebase:", firebaseErr);
-      }
+    // Prepare payment data to store in Firestore
+    const paymentData = {
+      order_id: parsed.order_id,
+      tracking_id: parsed.tracking_id || null,
+      amount: parsed.amount || null,
+      payment_status: parsed.order_status,
+      billing_name: parsed.billing_name || null,
+      billing_email: parsed.billing_email || null,
+      billing_tel: parsed.billing_tel || null,
+      bank_ref_no: parsed.bank_ref_no || null,
+      currency: parsed.currency || "INR",
+      createdAt: new Date(),
+      raw: parsed,
+    };
 
-      // Redirect frontend safely using only orderId
-      res.redirect(
-        `https://kirdana.net/payment-success?order_id=${encodeURIComponent(orderId)}`,
-      );
-    } catch (err) {
-      console.error("❌ CCAvenue Response Decrypt Error:", err);
+    // Write to Firestore
+    await db.collection("payments").doc(parsed.order_id).set(paymentData);
 
-      // Save failed attempt to Firebase
-      try {
-        await setDoc(doc(db, "payments_failed", `failed_${Date.now()}`), {
-          error: err.message,
-          encResp: req.body.encResp,
-          createdAt: serverTimestamp(),
-        });
-      } catch (firebaseErr) {
-        console.error(
-          "❌ Failed to save failed payment in Firebase:",
-          firebaseErr,
-        );
-      }
+    // Update in-memory store
+    global.paymentStore[parsed.order_id] = {
+      status: parsed.order_status === "Success" ? "PAID" : "FAILED",
+      ...paymentData,
+      verifiedAt: Date.now(),
+    };
 
-      res.redirect("https://kirdana.net/payment-failed");
-    }
-  },
-);
+    // Redirect frontend to success page with order_id
+    const redirectUrl =
+      parsed.order_status === "Success"
+        ? `https://kirdana.net/payment-success?order_id=${parsed.order_id}`
+        : `https://kirdana.net/payment-failed?order_id=${parsed.order_id}`;
+
+    return res.redirect(redirectUrl);
+  } catch (err) {
+    console.error("❌ CCAvenue Response Error:", err);
+    return res.status(500).json({ success: false, error: "Decrypt or store failed" });
+  }
+});
+
+/* ===============================
+   Verify payment
+   =============================== */
+router.get("/verify/:orderId", (req, res) => {
+  try {
+    const { orderId } = req.params;
+
+    if (!global.paymentStore || !global.paymentStore[orderId])
+      return res.json({ success: false, status: "PENDING" });
+
+    const payment = global.paymentStore[orderId];
+
+    return res.json({
+      success: payment.status === "PAID",
+      status: payment.status,
+      paymentId: payment.paymentId,
+      amount: payment.amount,
+    });
+  } catch (err) {
+    console.error("❌ Verify error:", err);
+    return res.status(500).json({ success: false, status: "ERROR" });
+  }
+});
+
 /* ===============================
    Handle payment cancel
    =============================== */
 router.post("/cancel", (req, res) => {
-  res.redirect("https://kirdana.net/payment-failed");
+  return res.json({ success: false, status: "CANCELLED" });
 });
 
 module.exports = router;
