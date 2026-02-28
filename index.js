@@ -8,8 +8,16 @@ const ccavRoutes = require("./routes/ccavenue");
 const app = express();
 
 app.use(cors());
-app.use(bodyParser.json());
 
+// ✅ Parse JSON bodies
+app.use(bodyParser.json());
+app.use(bodyParser.urlencoded({ extended: true }));
+// ✅ Parse URL-encoded bodies (needed for CCAvenue response)
+
+// Optional: ignore favicon requests
+app.get("/favicon.ico", (req, res) => res.status(204).end());
+
+// Routes
 app.use("/api/ccav", ccavRoutes);
 
 app.get("/health", (req, res) => {
