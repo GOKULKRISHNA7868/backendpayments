@@ -6,6 +6,7 @@ const qs = require("querystring");
 /* ===============================
    🔐 CCAvenue PROD Credentials
    =============================== */
+
 const merchant_id = "4423673";
 const access_code = "AVJW88NB21AL14WJLA";
 const working_key = "4CE2CC6602914AD1FA96DF7457299700";
@@ -13,6 +14,7 @@ const CCAV_ENV = "PROD";
 
 /* ===============================
    In-memory payment store
+   ⚠️ Replace with DB/Redis in production
    =============================== */
 global.paymentStore = global.paymentStore || {};
 
@@ -22,12 +24,18 @@ global.paymentStore = global.paymentStore || {};
 router.post("/initiate", (req, res) => {
   try {
     const { amount, order_id, customer } = req.body;
-    if (!amount || !order_id || !customer?.email)
-      return res.status(400).json({ success: false, error: "Missing required fields" });
 
-    const redirect_url = "https://kridana.net/api/payment/response"; // server endpoint
-    const cancel_url = "https://kridana.net/api/payment/cancel";
+    if (!amount || !order_id || !customer?.email) {
+      return res.status(400).json({
+        success: false,
+        error: "Missing required fields",
+      });
+    }
 
+    // ✅ Must be CCAvenue registered domain
+    const redirect_url =
+      "https://backendpayments.onrender.com/api/ccav/response";
+    const cancel_url = "https://backendpayments.onrender.com/api/ccav/cancel";
     const dataObj = {
       merchant_id,
       order_id,
@@ -40,7 +48,9 @@ router.post("/initiate", (req, res) => {
       billing_tel: customer.phone || "9999999999",
     };
 
+    // ✅ URL encoded string (MANDATORY for CCAvenue)
     const data = qs.stringify(dataObj);
+
     const encRequest = encrypt(data, working_key);
 
     const paymentUrl =
@@ -48,8 +58,12 @@ router.post("/initiate", (req, res) => {
         ? "https://secure.ccavenue.com/transaction/transaction.do?command=initiateTransaction"
         : "https://test.ccavenue.com/transaction/transaction.do?command=initiateTransaction";
 
-    // Store in-memory only
-    global.paymentStore[order_id] = { status: "PENDING", createdAt: Date.now(), amount, customer };
+    // Store as pending
+    global.paymentStore[order_id] = {
+      status: "PENDING",
+      createdAt: Date.now(),
+      amount,
+    };
 
     return res.json({
       success: true,
@@ -60,12 +74,15 @@ router.post("/initiate", (req, res) => {
     });
   } catch (err) {
     console.error("❌ Initiate error:", err);
-    return res.status(500).json({ success: false, error: "Payment initiation failed" });
+    return res.status(500).json({
+      success: false,
+      error: "Payment initiation failed",
+    });
   }
 });
 
 /* ===============================
-   Handle CCAvenue response
+   Handle CCAvenue response (SERVER-SIDE)
    =============================== */
 router.post("/response", (req, res) => {
   try {
@@ -74,60 +91,98 @@ router.post("/response", (req, res) => {
 
     const decrypted = decrypt(encResp, working_key);
     const parsed = qs.parse(decrypted);
+
     if (!parsed.order_id) return res.status(400).send("Invalid response");
 
-    // Update in-memory store
-    global.paymentStore[parsed.order_id] = {
-      status: parsed.order_status === "Success" ? "PAID" : "FAILED",
-      ...parsed,
-      verifiedAt: Date.now(),
-    };
+    // Save status in memory store
+    if (parsed.order_status === "Success") {
+      global.paymentStore[parsed.order_id] = {
+        status: "PAID",
+        paymentId: parsed.tracking_id,
+        amount: parsed.amount,
+        raw: parsed,
+        verifiedAt: Date.now(),
+      };
+    } else {
+      global.paymentStore[parsed.order_id] = {
+        status: "FAILED",
+        raw: parsed,
+        verifiedAt: Date.now(),
+      };
+    }
 
-    // Determine frontend URL
-    const frontendUrl =
-      parsed.order_status === "Success"
-        ? `https://kridana.net/payment-success?order_id=${parsed.order_id}`
-        : `https://kridana.net/payment-failed?order_id=${parsed.order_id}`;
-
-    // Return HTML that auto-redirects via GET
-    return res.send(`
-      <html>
-        <head>
-          <title>Redirecting...</title>
-        </head>
-        <body>
-          <p>Redirecting, please wait...</p>
-          <form id="redirectForm" method="GET" action="${frontendUrl}">
-            <input type="hidden" name="order_id" value="${parsed.order_id}" />
-          </form>
-          <script>
-            document.getElementById('redirectForm').submit();
-          </script>
-        </body>
-      </html>
-    `);
+    // 🔹 Redirect to frontend with orderId as query param
+    const frontendUrl = `https://kridana.net/payment-success?orderId=${parsed.order_id}`;
+    return res.redirect(frontendUrl);
   } catch (err) {
-    console.error("❌ CCAvenue Response Error:", err);
+    console.error("CCAvenue Response Error:", err);
     return res.status(500).send("Decrypt failed");
   }
 });
 
 /* ===============================
-   Get payment details (for frontend PaymentSuccess.jsx)
+   Verify Payment Status API
    =============================== */
-router.get("/details/:orderId", (req, res) => {
-  const { orderId } = req.params;
-  if (!global.paymentStore[orderId])
-    return res.status(404).json({ success: false, error: "Payment not found" });
+/* ===============================
+   Verify payment
+   =============================== */
+/* ===============================
+   Verify Payment Status API
+   =============================== */
+router.get("/verify/:orderId", (req, res) => {
+  try {
+    const { orderId } = req.params;
 
-  return res.json({ success: true, payment: global.paymentStore[orderId] });
+    // No store or no order
+    if (!global.paymentStore || !global.paymentStore[orderId]) {
+      return res.json({
+        success: false,
+        status: "PENDING",
+      });
+    }
+
+    const payment = global.paymentStore[orderId];
+
+    // ✅ Paid
+    if (payment.status === "PAID") {
+      return res.json({
+        success: true,
+        status: "PAID",
+        paymentId: payment.paymentId,
+        amount: payment.amount,
+      });
+    }
+
+    // ❌ Failed
+    if (payment.status === "FAILED") {
+      return res.json({
+        success: false,
+        status: "FAILED",
+      });
+    }
+
+    // Fallback
+    return res.json({
+      success: false,
+      status: "PENDING",
+    });
+  } catch (err) {
+    console.error("❌ Verify error:", err);
+    return res.status(500).json({
+      success: false,
+      status: "ERROR",
+    });
+  }
 });
 
 /* ===============================
    Handle payment cancel
    =============================== */
 router.post("/cancel", (req, res) => {
-  return res.json({ success: false, status: "CANCELLED" });
+  return res.json({
+    success: false,
+    status: "CANCELLED",
+  });
 });
 
 module.exports = router;
