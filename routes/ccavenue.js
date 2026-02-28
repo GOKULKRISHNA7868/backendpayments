@@ -70,13 +70,11 @@ router.post("/initiate", (req, res) => {
 router.post("/response", (req, res) => {
   try {
     const encResp = req.body.encResp;
-    if (!encResp) return res.status(400).json({ success: false, error: "No encResp" });
+    if (!encResp) return res.status(400).send("No encResp");
 
     const decrypted = decrypt(encResp, working_key);
-    console.log("✅ CCAvenue Decrypted Response:", decrypted);
-
     const parsed = qs.parse(decrypted);
-    if (!parsed.order_id) return res.status(400).json({ success: false, error: "Invalid response" });
+    if (!parsed.order_id) return res.status(400).send("Invalid response");
 
     // Update in-memory store
     global.paymentStore[parsed.order_id] = {
@@ -85,16 +83,32 @@ router.post("/response", (req, res) => {
       verifiedAt: Date.now(),
     };
 
-    // Redirect user to frontend success page
-    const redirectUrl =
+    // Determine frontend URL
+    const frontendUrl =
       parsed.order_status === "Success"
         ? `https://kridana.net/payment-success?order_id=${parsed.order_id}`
         : `https://kridana.net/payment-failed?order_id=${parsed.order_id}`;
 
-    return res.redirect(redirectUrl);
+    // Return HTML that auto-redirects via GET
+    return res.send(`
+      <html>
+        <head>
+          <title>Redirecting...</title>
+        </head>
+        <body>
+          <p>Redirecting, please wait...</p>
+          <form id="redirectForm" method="GET" action="${frontendUrl}">
+            <input type="hidden" name="order_id" value="${parsed.order_id}" />
+          </form>
+          <script>
+            document.getElementById('redirectForm').submit();
+          </script>
+        </body>
+      </html>
+    `);
   } catch (err) {
     console.error("❌ CCAvenue Response Error:", err);
-    return res.status(500).json({ success: false, error: "Decrypt failed" });
+    return res.status(500).send("Decrypt failed");
   }
 });
 
